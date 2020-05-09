@@ -1,0 +1,69 @@
+#!/bin/bash
+set -euo pipefail
+
+BASE_DIR="$(cd "$(dirname "$0")"; pwd)"
+WORKSPACE_DIR="${1:-$(pwd)}"
+OUTPUT_README="$([[ -e "${BASE_DIR}/output_readme" ]] && echo 1 || echo 0)"
+
+SPIN_OPT_PRE="-a -o2"
+SPIN_OPT_PRE_FILE="${WORKSPACE_DIR}/spin_opt_pre"
+if [[ -f "${SPIN_OPT_PRE_FILE}" ]]; then
+    SPIN_OPT_PRE=$(cat ${SPIN_OPT_PRE_FILE})
+fi
+
+SPIN_OPT_SUF=""
+SPIN_OPT_SUF_FILE="${WORKSPACE_DIR}/spin_opt_suf"
+if [[ -f "${SPIN_OPT_SUF_FILE}" ]]; then
+    SPIN_OPT_SUF=$(cat ${SPIN_OPT_SUF_FILE})
+fi
+
+GCC_OPT="-DREACH"
+GCC_OPT_FILE="${WORKSPACE_DIR}/gcc_opt"
+if [[ -f "${GCC_OPT_FILE}" ]]; then
+    GCC_OPT=$(cat ${GCC_OPT_FILE})
+fi
+
+PAN_OPT="-c0 -e"
+PAN_OPT_FILE="${WORKSPACE_DIR}/pan_opt"
+if [[ -f "${PAN_OPT_FILE}" ]]; then
+    PAN_OPT=$(cat ${PAN_OPT_FILE})
+fi
+
+BASE_DIR=$(cd "$(dirname "$0")"; pwd)
+(cd "${BASE_DIR}"
+    echo "# Environment information:"
+    git rev-parse HEAD 1>&2
+    git status --short 1>&2
+    gcc --version 1>&2
+    spin -V 1>&2
+    echo
+)
+
+cmd_exec_with_log() {
+    if [[ "$OUTPUT_README" = 'true' ]]; then
+        echo "$@" >> README.md
+        "$@" >> README.md
+    else
+        echo "$@"
+        "$@"
+    fi
+}
+
+(cd "${WORKSPACE_DIR}"
+    echo "# Checking models..."
+    git clean -fx *.trail pan pan.*
+
+    [[ $OUTPUT_README -eq 0 ]] || echo '```' > README.md
+
+    while read pml_file; do
+        cmd_exec_with_log spin ${SPIN_OPT_PRE} "${pml_file}" ${SPIN_OPT_SUF}
+        cmd_exec_with_log gcc ${GCC_OPT} -o ./pan ./pan.c
+        cmd_exec_with_log ./pan ${PAN_OPT}
+
+        while read trail_file; do
+            cmd_exec_with_log spin -pglsr -k "${trail_file}" -t "${pml_file}"
+        done < <(find . -maxdepth 1 -name '*.trail')
+
+        [[ $OUTPUT_README -eq 0 ]] || echo '```' >> README.md
+    done < <(find . -maxdepth 1 -name '*.pml')
+)
