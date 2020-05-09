@@ -3,7 +3,7 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "$0")"; pwd)"
 WORKSPACE_DIR="${1:-$(pwd)}"
-OUTPUT_README="$([[ -e "${BASE_DIR}/output_readme" ]] && echo 1 || echo 0)"
+SED_SCRIPT="${BASE_DIR}/mtype.sed"
 
 SPIN_OPT_PRE="-a -o2"
 SPIN_OPT_PRE_FILE="${WORKSPACE_DIR}/spin_opt_pre"
@@ -23,7 +23,7 @@ if [[ -f "${GCC_OPT_FILE}" ]]; then
     GCC_OPT=$(cat ${GCC_OPT_FILE})
 fi
 
-PAN_OPT="-c0 -e"
+PAN_OPT="-c1"
 PAN_OPT_FILE="${WORKSPACE_DIR}/pan_opt"
 if [[ -f "${PAN_OPT_FILE}" ]]; then
     PAN_OPT=$(cat ${PAN_OPT_FILE})
@@ -39,31 +39,16 @@ BASE_DIR=$(cd "$(dirname "$0")"; pwd)
     echo
 )
 
-cmd_exec_with_log() {
-    if [[ "$OUTPUT_README" = 'true' ]]; then
-        echo "$@" >> README.md
-        "$@" >> README.md
-    else
-        echo "$@"
-        "$@"
-    fi
-}
-
 (cd "${WORKSPACE_DIR}"
-    echo "# Checking models..."
     git clean -fx *.trail pan pan.*
 
-    [[ $OUTPUT_README -eq 0 ]] || echo '```' > README.md
-
     while read pml_file; do
-        cmd_exec_with_log spin ${SPIN_OPT_PRE} "${pml_file}" ${SPIN_OPT_SUF}
-        cmd_exec_with_log gcc ${GCC_OPT} -o ./pan ./pan.c
-        cmd_exec_with_log ./pan ${PAN_OPT}
+        spin ${SPIN_OPT_PRE} "${pml_file}" ${SPIN_OPT_SUF}
+        gcc ${GCC_OPT} -o ./pan ./pan.c
+        ./pan ${PAN_OPT}
 
         while read trail_file; do
-            cmd_exec_with_log spin -pglsr -k "${trail_file}" -t "${pml_file}"
-        done < <(find . -maxdepth 1 -name '*.trail')
-
-        [[ $OUTPUT_README -eq 0 ]] || echo '```' >> README.md
+            spin -pglsr -k "${trail_file}" -t "${pml_file}" | sed -E -f "$SED_SCRIPT"
+        done < <(find . -maxdepth 1 -name '*.trail' | head -3)
     done < <(find . -maxdepth 1 -name '*.pml')
 )
