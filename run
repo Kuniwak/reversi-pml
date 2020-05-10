@@ -5,50 +5,28 @@ BASE_DIR="$(cd "$(dirname "$0")"; pwd)"
 WORKSPACE_DIR="${1:-$(pwd)}"
 SED_SCRIPT="${BASE_DIR}/mtype.sed"
 
-SPIN_OPT_PRE="-a -o2"
-SPIN_OPT_PRE_FILE="${WORKSPACE_DIR}/spin_opt_pre"
-if [[ -f "${SPIN_OPT_PRE_FILE}" ]]; then
-    SPIN_OPT_PRE=$(cat ${SPIN_OPT_PRE_FILE})
-fi
-
-SPIN_OPT_SUF=""
-SPIN_OPT_SUF_FILE="${WORKSPACE_DIR}/spin_opt_suf"
-if [[ -f "${SPIN_OPT_SUF_FILE}" ]]; then
-    SPIN_OPT_SUF=$(cat ${SPIN_OPT_SUF_FILE})
-fi
-
-GCC_OPT="-DREACH"
-GCC_OPT_FILE="${WORKSPACE_DIR}/gcc_opt"
-if [[ -f "${GCC_OPT_FILE}" ]]; then
-    GCC_OPT=$(cat ${GCC_OPT_FILE})
-fi
-
-PAN_OPT="-c1"
-PAN_OPT_FILE="${WORKSPACE_DIR}/pan_opt"
-if [[ -f "${PAN_OPT_FILE}" ]]; then
-    PAN_OPT=$(cat ${PAN_OPT_FILE})
-fi
 
 BASE_DIR=$(cd "$(dirname "$0")"; pwd)
 (cd "${BASE_DIR}"
-    echo "# Environment information:"
-    git rev-parse HEAD 1>&2
-    git status --short 1>&2
-    gcc --version 1>&2
-    spin -V 1>&2
-    echo
+	echo "# Environment information:"
+	git rev-parse HEAD 1>&2
+	git status --short 1>&2
+	gcc --version 1>&2
+	spin -V 1>&2
+	echo
 )
 
 (cd "${WORKSPACE_DIR}"
-    git clean -fx *.trail pan pan.*
+	set -x
+	git clean -fx '*.trail' pan 'pan.*'
 
-    while read pml_file; do
-        spin ${SPIN_OPT_PRE} "${pml_file}" ${SPIN_OPT_SUF}
-        gcc ${GCC_OPT} -o ./pan ./pan.c
-        ./pan ${PAN_OPT}
+	while read pml_file; do
+		spin -a -o2 "${pml_file}"
+		gcc -DREACH -o ./pan ./pan.c
+		./pan -c1 -m100000
 
-        while read trail_file; do
-            spin -pglsr -k "${trail_file}" -t "${pml_file}" | sed -E -f "$SED_SCRIPT"
-        done < <(find . -maxdepth 1 -name '*.trail' | head -3)
-    done < <(find . -maxdepth 1 -name '*.pml')
+		while read trail_file; do
+			spin -pglsr -k "${trail_file}" -t "${pml_file}" | sed -E -f "$SED_SCRIPT"
+		done < <(find . -maxdepth 1 -name '*.trail' | head -3)
+	done < <(find . -maxdepth 1 -name '*.pml')
 )

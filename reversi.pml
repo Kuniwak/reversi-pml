@@ -6,6 +6,8 @@ mtype:AnimatedGameState = { AGMReady, AGMCompleted, AGMAnimating }
 mtype:AnimatedGameCommand = { AGMPass, AGMPlace, AGMReset, AGMMarkAnimationAsCompleted, AGMMarkSyncAsCompleted }
 // mtype:AutomatorProgress = { APWorking, APSleeping }
 
+// 60 = 8x8-4
+#define MAX_GAME_LIFE 3
 chan gameStateDidChange = [1] of { mtype:GameState }
 chan gameCommandDidAccept = [1] of { mtype:GameCommand }
 chan gameCommandQueue = [1] of { mtype:GameCommand }
@@ -16,14 +18,31 @@ chan animatedGameCommandQueue = [1] of { mtype:AnimatedGameCommand }
 // chan automatorDidProgress = [0] of { mtype:AutomatorProgress }
 
 
+inline animatedGameStateFrom(gameState, boardAnimationState, animatedGameState) {
+	d_step {
+		if
+		:: boardAnimationState == BAMNotAnimating ->
+			if
+			:: gameState == GMReady ->
+				animatedGameState = AGMReady
+			:: gameState == GMCompleted ->
+				animatedGameState = AGMCompleted
+			:: else -> assert(false)
+			fi
+		:: boardAnimationState == BAMPlacing ->
+			animatedGameState = AGMAnimating
+		:: boardAnimationState == BAMFlipping ->
+			animatedGameState = AGMAnimating
+		:: boardAnimationState == BAMForceSyncing ->
+			animatedGameState = AGMAnimating
+		:: else -> assert(false)
+		fi
+	}
+}
 
-active proctype GameModel() {
-	mtype:GameState gameState
-	mtype:GameCommand gameCommand
-	gameState = GMReady
-	gameStateDidChange!GMReady
 
-	end: do
+inline runDispatchWorkItem(remainedGameLife, gameState, gameCommand, acceptedGameCommand, boardAnimationState, boardAnimationCommand, animatedGameState, animatedGameCommand) {
+	if
 	:: nempty(gameCommandQueue) && empty(gameStateDidChange) && empty(gameCommandDidAccept) && gameState == GMCompleted ->
 		gameCommandQueue?gameCommand
 
@@ -31,9 +50,11 @@ active proctype GameModel() {
 		:: gameCommand == GMPass -> skip
 		:: gameCommand == GMPlace -> skip
 		:: gameCommand == GMReset ->
+			remainedGameLife = MAX_GAME_LIFE
 			gameState = GMReady
 			gameStateDidChange!gameState
 			gameCommandDidAccept!GMReset
+		:: else -> assert(false)
 		fi
 
 	:: nempty(gameCommandQueue) && empty(gameStateDidChange) && empty(gameCommandDidAccept) && gameState == GMReady ->
@@ -42,39 +63,37 @@ active proctype GameModel() {
 		if
 		:: gameCommand == GMPass ->
 			if
-			:: gameState = GMReady
+			:: remainedGameLife > 1 ->
+				gameState = GMReady
 				gameStateDidChange!gameState
 				gameCommandDidAccept!GMPass
-			:: else -> skip
+			:: remainedGameLife <= 1 -> skip
 			fi
 
 		:: gameCommand == GMPlace ->
 			if
-			:: gameState = GMReady
+			:: remainedGameLife > 0 ->
+				remainedGameLife--
+			  gameState = GMReady
 				gameStateDidChange!gameState
 				gameCommandDidAccept!GMPlace
-			:: gameState = GMCompleted
+			:: remainedGameLife == 0 ->
+				remainedGameLife--
+				gameState = GMCompleted
 				gameStateDidChange!gameState
 				gameCommandDidAccept!GMPlace
-			:: else -> skip
+			// :: else -> skip
 			fi
 
 		:: gameCommand == GMReset ->
+			remainedGameLife = MAX_GAME_LIFE
 			gameState = GMReady
 			gameStateDidChange!gameState
 			gameCommandDidAccept!GMReset
+		:: else -> assert(false)
 		fi
-	od
-}
 
 
-active proctype BoardAnimationModel() {
-	mtype:BoardAnimationState boardAnimationState
-	mtype:BoardAnimationCommand boardAnimationCommand
-	boardAnimationState = BAMNotAnimating
-	boardAnimationStateDidChange!boardAnimationState
-
-	end: do
 	:: nempty(boardAnimationCommandQueue) && empty(boardAnimationStateDidChange) && boardAnimationState == BAMNotAnimating ->
 		boardAnimationCommandQueue?boardAnimationCommand
 		if
@@ -86,6 +105,7 @@ active proctype BoardAnimationModel() {
 			boardAnimationStateDidChange!boardAnimationState
 		:: boardAnimationCommand == BAMMarkAnimationAsCompleted -> skip
 		:: boardAnimationCommand == BAMMarkSyncAsCompleted -> skip
+		:: else -> assert(false)
 		fi
 
 	:: nempty(boardAnimationCommandQueue) && empty(boardAnimationStateDidChange) && boardAnimationState == BAMPlacing ->
@@ -99,6 +119,7 @@ active proctype BoardAnimationModel() {
 			boardAnimationState = BAMFlipping
 			boardAnimationStateDidChange!boardAnimationState
 		:: boardAnimationCommand == BAMMarkSyncAsCompleted -> skip
+		:: else -> assert(false)
 		fi
 
 	:: nempty(boardAnimationCommandQueue) && empty(boardAnimationStateDidChange) && boardAnimationState == BAMFlipping ->
@@ -111,11 +132,11 @@ active proctype BoardAnimationModel() {
 		:: boardAnimationCommand == BAMMarkAnimationAsCompleted ->
 			if
 			:: boardAnimationState = BAMFlipping
-				boardAnimationStateDidChange!boardAnimationState
 			:: boardAnimationState = BAMNotAnimating
-				boardAnimationStateDidChange!boardAnimationState
 			fi
+			boardAnimationStateDidChange!boardAnimationState
 		:: boardAnimationCommand == BAMMarkSyncAsCompleted -> skip
+		:: else -> assert(false)
 		fi
 
 	:: nempty(boardAnimationCommandQueue) && empty(boardAnimationStateDidChange) && boardAnimationState == BAMForceSyncing ->
@@ -129,102 +150,108 @@ active proctype BoardAnimationModel() {
 		:: boardAnimationCommand == BAMMarkSyncAsCompleted ->
 			boardAnimationState = BAMNotAnimating
 			boardAnimationStateDidChange!boardAnimationState
+		:: else -> assert(false)
 		fi
-	od
-}
 
-
-inline animatedGameStateFrom(gameState, boardAnimationState, animatedGameState) {
-	d_step {
+	:: nempty(animatedGameCommandQueue) && empty(gameCommandQueue) && empty(boardAnimationCommandQueue) ->
+		animatedGameCommandQueue?animatedGameCommand
 		if
-		:: boardAnimationState == BAMNotAnimating ->
+		:: animatedGameState == AGMReady ->
 			if
-			:: gameState == GMReady ->
-				animatedGameState = AGMReady
-			:: gameState == GMCompleted ->
-				animatedGameState = AGMCompleted
+			:: animatedGameCommand == AGMPass ->
+				gameCommandQueue!GMPass
+			:: animatedGameCommand == AGMPlace ->
+				gameCommandQueue!GMPlace
+			:: animatedGameCommand == AGMReset ->
+				gameCommandQueue!GMReset
+			:: animatedGameCommand == AGMMarkAnimationAsCompleted -> skip
+			:: animatedGameCommand == AGMMarkSyncAsCompleted -> skip
+			:: else -> assert(false)
 			fi
-		:: boardAnimationState == BAMPlacing ->
-			animatedGameState = AGMAnimating
-		:: boardAnimationState == BAMFlipping ->
-			animatedGameState = AGMAnimating
-		:: boardAnimationState == BAMForceSyncing ->
-			animatedGameState = AGMAnimating
+		:: animatedGameState == AGMAnimating -> skip
+		:: animatedGameState == AGMCompleted ->
+			if
+			:: animatedGameCommand == AGMPass ->
+				gameCommandQueue!GMPass
+			:: animatedGameCommand == AGMPlace ->
+				gameCommandQueue!GMPlace
+			:: animatedGameCommand == AGMReset ->
+				gameCommandQueue!GMReset
+			:: animatedGameCommand == AGMMarkAnimationAsCompleted -> skip
+			:: animatedGameCommand == AGMMarkSyncAsCompleted -> skip
+			:: else -> assert(false)
+			fi
+		:: else -> assert(false)
 		fi
-	}
-}
 
+		if
+		:: animatedGameCommand == AGMPass -> skip
+		:: animatedGameCommand == AGMPlace -> skip
+		:: animatedGameCommand == AGMReset -> skip
+		:: animatedGameCommand == AGMMarkAnimationAsCompleted ->
+			boardAnimationCommandQueue!BAMMarkAnimationAsCompleted
+		:: animatedGameCommand == AGMMarkSyncAsCompleted ->
+			boardAnimationCommandQueue!BAMMarkSyncAsCompleted
+		:: else -> assert(false)
+		fi
 
-active proctype AnimatedGameModel() {
-	mtype:AnimatedGameState animatedGameState
-	mtype:AnimatedGameCommand animatedGameCommand
-	mtype:GameState gameState
-	mtype:GameCommand acceptedGameCommand
-	mtype:BoardAnimationState boardAnimationState
-
-	gameStateDidChange?gameState
-	boardAnimationStateDidChange?boardAnimationState
-	animatedGameStateFrom(gameState, boardAnimationState, animatedGameState)
-	animatedGameStateDidChange!animatedGameState
-	
-	end: do
 	:: nempty(gameStateDidChange) && empty(animatedGameStateDidChange) ->
 		gameStateDidChange?gameState
+
 		animatedGameStateFrom(gameState, boardAnimationState, animatedGameState)
 		animatedGameStateDidChange!animatedGameState
 
 	:: nempty(boardAnimationStateDidChange) && empty(animatedGameStateDidChange) ->
 		boardAnimationStateDidChange?boardAnimationState
+
 		animatedGameStateFrom(gameState, boardAnimationState, animatedGameState)
 		animatedGameStateDidChange!animatedGameState
 
 	:: nempty(gameCommandDidAccept) && empty(boardAnimationCommandQueue) ->
 		gameCommandDidAccept?acceptedGameCommand 
+
 		if
 		:: acceptedGameCommand == GMPass -> skip
 		:: acceptedGameCommand == GMPlace ->
 			boardAnimationCommandQueue!BAMPlace
 		:: acceptedGameCommand == GMReset ->
 			boardAnimationCommandQueue!BAMForceSync
+		:: else -> assert(false)
 		fi
+	fi
+}
 
-	:: nempty(animatedGameCommandQueue) && empty(gameCommandQueue) && empty(boardAnimationCommandQueue) ->
-			animatedGameCommandQueue?animatedGameCommand
-			if
-			:: animatedGameState == AGMReady ->
-				if
-				:: animatedGameCommand == AGMPass ->
-					gameCommandQueue!GMPass
-				:: animatedGameCommand == AGMPlace ->
-					gameCommandQueue!GMPlace
-				:: animatedGameCommand == AGMReset ->
-					gameCommandQueue!GMReset
-				:: animatedGameCommand == AGMMarkAnimationAsCompleted -> skip
-				:: animatedGameCommand == AGMMarkSyncAsCompleted -> skip
-				fi
-			:: animatedGameState == AGMAnimating -> skip
-			:: animatedGameState == AGMCompleted ->
-				if
-				:: animatedGameCommand == AGMPass ->
-					gameCommandQueue!GMPass
-				:: animatedGameCommand == AGMPlace ->
-					gameCommandQueue!GMPlace
-				:: animatedGameCommand == AGMReset ->
-					gameCommandQueue!GMReset
-				:: animatedGameCommand == AGMMarkAnimationAsCompleted -> skip
-				:: animatedGameCommand == AGMMarkSyncAsCompleted -> skip
-				fi
-			fi
 
-			if
-			:: animatedGameCommand == AGMPass -> skip
-			:: animatedGameCommand == AGMPlace -> skip
-			:: animatedGameCommand == AGMReset -> skip
-			:: animatedGameCommand == AGMMarkAnimationAsCompleted ->
-				boardAnimationCommandQueue!BAMMarkAnimationAsCompleted
-			:: animatedGameCommand == AGMMarkSyncAsCompleted ->
-				boardAnimationCommandQueue!BAMMarkSyncAsCompleted
-			fi
+active proctype ModelsOnSameSerialDispatchQueue() {
+	mtype:GameState gameState
+	mtype:GameCommand gameCommand
+	mtype:GameCommand acceptedGameCommand
+	mtype:BoardAnimationState boardAnimationState
+	mtype:BoardAnimationCommand boardAnimationCommand
+	mtype:AnimatedGameState animatedGameState
+	mtype:AnimatedGameCommand animatedGameCommand
+	int remainedGameLife = 60
+
+	gameState = GMReady
+	gameStateDidChange!GMReady
+
+	boardAnimationState = BAMNotAnimating
+	boardAnimationStateDidChange!boardAnimationState
+
+	animatedGameStateFrom(gameState, boardAnimationState, animatedGameState)
+	animatedGameStateDidChange!animatedGameState
+
+	end: do
+	:: runDispatchWorkItem(
+			remainedGameLife,
+			gameState,
+			gameCommand,
+			acceptedGameCommand,
+			boardAnimationState,
+			boardAnimationCommand,
+			animatedGameState,
+			animatedGameCommand
+		)
 	od
 }
 
@@ -233,10 +260,19 @@ active proctype AnyView() {
 	mtype:AnimatedGameState animatedGameState
 	end: do
 	:: animatedGameStateDidChange?animatedGameState
-	:: animatedGameCommandQueue!AGMPass
+	//:: animatedGameCommandQueue!AGMPass
 	:: animatedGameCommandQueue!AGMPlace
-	:: animatedGameCommandQueue!AGMReset
+	//:: animatedGameCommandQueue!AGMReset
 	:: animatedGameCommandQueue!AGMMarkAnimationAsCompleted
 	:: animatedGameCommandQueue!AGMMarkSyncAsCompleted
 	od
 }
+
+
+// never  {    /* [](empty(animatedGameStateDidChange) || !animatedGameStateDidChange?[AGMCompleted]) */
+// accept_init:
+// T0_init:
+// 	do
+// 	:: ((empty(animatedGameStateDidChange) || !animatedGameStateDidChange?[AGMCompleted])) -> goto T0_init
+// 	od;
+// }
