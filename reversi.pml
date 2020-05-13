@@ -1,9 +1,5 @@
-mtype:GameState = { GMReady, GMCompleted }
-mtype:GameCommand = { GMPass, GMPlace, GMReset }
-mtype:BoardAnimationState = { BAMNotAnimating, BAMPlacing, BAMFlipping, BAMForceSyncing }
-mtype:BoardAnimationCommand = { BAMPlace, BAMForceSync, BAMMarkAnimationAsCompleted, BAMMarkSyncAsCompleted }
-mtype:AnimatedGameState = { AGMReady, AGMCompleted, AGMAnimating }
-mtype:AnimatedGameCommand = { AGMPass, AGMPlace, AGMReset, AGMMarkAnimationAsCompleted, AGMMarkSyncAsCompleted }
+mtype:AutomatableGameState = { GMReady, GMCompleted }
+mtype:AutomatableGameCommand = { GMPass, GMPlace, GMReset }
 // mtype:AutomatorProgress = { APWorking, APSleeping }
 
 // 60 = 8x8-4
@@ -11,34 +7,7 @@ mtype:AnimatedGameCommand = { AGMPass, AGMPlace, AGMReset, AGMMarkAnimationAsCom
 chan gameStateDidChange = [1] of { mtype:GameState }
 chan gameCommandDidAccept = [1] of { mtype:GameCommand }
 chan gameCommandQueue = [1] of { mtype:GameCommand }
-chan boardAnimationStateDidChange = [1] of { mtype:BoardAnimationState }
-chan boardAnimationCommandQueue = [1] of { mtype:BoardAnimationCommand }
-chan animatedGameStateDidChange = [1] of { mtype:AnimatedGameState }
-chan animatedGameCommandQueue = [1] of { mtype:AnimatedGameCommand }
 // chan automatorDidProgress = [0] of { mtype:AutomatorProgress }
-
-
-inline animatedGameStateFrom(gameState, boardAnimationState, animatedGameState) {
-	d_step {
-		if
-		:: boardAnimationState == BAMNotAnimating ->
-			if
-			:: gameState == GMReady ->
-				animatedGameState = AGMReady
-			:: gameState == GMCompleted ->
-				animatedGameState = AGMCompleted
-			:: else -> assert(false)
-			fi
-		:: boardAnimationState == BAMPlacing ->
-			animatedGameState = AGMAnimating
-		:: boardAnimationState == BAMFlipping ->
-			animatedGameState = AGMAnimating
-		:: boardAnimationState == BAMForceSyncing ->
-			animatedGameState = AGMAnimating
-		:: else -> assert(false)
-		fi
-	}
-}
 
 
 inline runDispatchWorkItem(remainedGameLife, gameState, gameCommand, acceptedGameCommand, boardAnimationState, boardAnimationCommand, animatedGameState, animatedGameCommand) {
