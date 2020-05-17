@@ -6,6 +6,11 @@ WORKSPACE_DIR="${1:-$(pwd)}"
 SED_SCRIPT="${BASE_DIR}/mtype.sed"
 
 
+pretty-mtype() {
+	sed -E -f "$SED_SCRIPT"
+}
+
+
 BASE_DIR=$(cd "$(dirname "$0")"; pwd)
 (cd "${BASE_DIR}"
 	echo "# Environment information:"
@@ -17,16 +22,17 @@ BASE_DIR=$(cd "$(dirname "$0")"; pwd)
 )
 
 (cd "${WORKSPACE_DIR}"
-	set -x
 	git clean -fx '*.trail' pan 'pan.*'
 
 	while read pml_file; do
 		spin -a -o2 "${pml_file}"
 		gcc -DREACH -o ./pan ./pan.c
-		./pan -c1 -m100000
+		./pan -e -c0 | pretty-mtype
 
 		while read trail_file; do
-			spin -pglsr -k "${trail_file}" -t "${pml_file}" | sed -E -f "$SED_SCRIPT"
+			echo
+			echo '------'
+			spin -pglsr -k "${trail_file}" -t "${pml_file}" | pretty-mtype
 		done < <(find . -maxdepth 1 -name '*.trail' | head -3)
 	done < <(find . -maxdepth 1 -name '*.pml')
 )
