@@ -27,7 +27,7 @@ BASE_DIR=$(cd "$(dirname "$0")"; pwd)
 	while read pml_file; do
 		spin -a -o2 "${pml_file}"
 		gcc -DREACH -o ./pan ./pan.c
-		./pan -e -c0 | pretty-mtype
+		./pan -e -c5 | pretty-mtype
 
 		while read trail_file; do
 			echo
