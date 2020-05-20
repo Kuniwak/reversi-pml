@@ -229,6 +229,9 @@ active proctype DispatchQueueMainLoop() {
 	:: remainedUserInteraction > 0 ->
 		enqueueWorkItems1(dispatchQueue, AnimatedGameModelResetWorkItem)
 		remainedUserInteraction--
+	:: remainedUserInteraction > 0 ->
+		enqueueWorkItems1(dispatchQueue, AnimatedGameModeMarkAnimationAsCompleted)
+		remainedUserInteraction--
 	:: dispatchQueueMain?dest ->
 		skip
 	od
