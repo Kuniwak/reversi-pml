@@ -1,9 +1,12 @@
 // NOTE: This model is based on the following 2 hypotheses:
 //
-//       NO DIVERGE HYPOTHESIS:
+//       NO DIVERGENCE HYPOTHESIS:
 //       A process implemented on a serial DispatchQueue has two work-item sources; the process itself and other processes.
 //       This hypothesis claims all sound models have an upper bound for a number of the work-items in the DispatchQueue if
-//       the number of work-items from other processes is finite.
+//       the number of work-items from other processes is finite. If no upper bounds on a model, the model will produce infinite
+//       work items, it must be a bug. At this point, there is a problem that a model that enqueues work-items for each
+//       timer ticks may diverge. But if and only if all of the work items from timer ticks finish before starting
+//       the next work item, it don't diverge. Otherwise will diverge.
 //
 //       SMALL SCOPE HYPOTHESIS:
 //       A high proportion of bugs can be found by testing a program for all test inputs within some small scope[^1].
@@ -217,6 +220,7 @@ active proctype DispatchQueueLoop() {
 
 active proctype DispatchQueueMainLoop() {
 	mtype:Dest dest
+	// NOTE: This is to assume No divergence hypothesis.
 	int remainedUserInteraction = MAX_USER_INTERACTION
 	
 	end: do
