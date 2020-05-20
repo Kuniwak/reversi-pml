@@ -1,9 +1,20 @@
+// NOTE: This model is based on the following 2 hypotheses:
+//
+//       NO DIVERGE HYPOTHESIS:
+//       A process implemented on a serial DispatchQueue has two work-item sources; the process itself and other processes.
+//       This hypothesis claims all sound models have an upper bound for a number of the work-items in the DispatchQueue if
+//       the number of work-items from other processes is finite.
+//
+//       SMALL SCOPE HYPOTHESIS:
+//       A high proportion of bugs can be found by testing a program for all test inputs within some small scope[^1].
+//
+// [^1]: https://pdfs.semanticscholar.org/0c6d/97fbc3c753f59e7fb723725639f1b18706bb.pdf
+
 mtype:Dest = {
 	GameModelPlaceObserver,
 	GameModelPassObserver,
 	GameModelResetObserver,
-	GameModelStateObserver1,
-	GameModelStateObserver2,
+	GameModelStateObserver,
 	AutoBkupGameModelPlaceObserver,
 	AutoBkupGameModelPassObserver,
 	AutoBkupGameModelResetObserver,
@@ -22,13 +33,13 @@ mtype:AutoBkupGameModelState = {
 	AutoBkupGameModelCompleted
 }
 
-// NOTE: 3 = a + b
-//       a = 1: Reserved capacity for tasks from outside of the dispatchQueue. It must be one.
-//       b = 2: Reserved capacity for tasks from the dispatchQueue itself. It must be equal to the
-//              max number how much a task can enqueue to dispatchQueue.
-#define CAP_dispatchQueue 3
+// NOTE: It must be larger than the upper bound of the number of work-items will be enqueued.
+#define CAP_dispatchQueue 10
 chan dispatchQueue = [CAP_dispatchQueue] of { mtype:Dest }
-chan dispatchQueueMain = [1] of { mtype:Dest }
+chan dispatchQueueMain = [CAP_dispatchQueue] of { mtype:Dest }
+
+// NOTE: It must be finite.
+#define MAX_USER_INTERACTION 5
 
 #define INIT_GameLife 10
 #define INIT_GameModelState GameModelMustPlace
@@ -71,7 +82,7 @@ active proctype DispatchQueueLoop() {
 	map_GameModelState_to_AutoBkupGameModelState(gameModelState, autoBkupGameModelState)
 
 	end: do
-	:: d_step { (dispatchQueue?[GameModelPlaceObserver] && len(dispatchQueue) == 1) -> dispatchQueue?GameModelPlaceObserver }
+	:: dispatchQueue?GameModelPlaceObserver ->
 		if
 		:: gameModelState == GameModelCompleted -> skip
 		:: gameModelState == GameModelMustPass -> skip
@@ -80,23 +91,23 @@ active proctype DispatchQueueLoop() {
 			:: remainedGameLife > 1 ->
 				gameModelState = GameModelMustPass
 				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelMustPlace
 				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelCompleted
 				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: remainedGameLife == 0 ->
 				gameModelState = GameModelCompleted
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: else -> skip
 			fi
 		fi
 
-	:: d_step { (dispatchQueue?[GameModelPassObserver] && len(dispatchQueue) == 1) -> dispatchQueue?GameModelPassObserver } ->
+	:: dispatchQueue?GameModelPassObserver ->
 		if
 		:: gameModelState == GameModelCompleted -> skip
 		:: gameModelState == GameModelMustPass ->
@@ -104,14 +115,14 @@ active proctype DispatchQueueLoop() {
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelMustPlace
 				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelCompleted
 				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: remainedGameLife == 0 ->
 				gameModelState = GameModelCompleted
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+				notifyObservers1(dispatchQueue, GameModelStateObserver)
 			:: else -> skip
 			fi
 		:: gameModelState == GameModelMustPlace -> skip
@@ -120,7 +131,7 @@ active proctype DispatchQueueLoop() {
 	:: dispatchQueue?GameModelResetObserver ->
 		gameModelState = INIT_GameModelState
 		remainedGameLife = INIT_GameLife
-		notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+		notifyObservers1(dispatchQueue, GameModelStateObserver)
 
 	:: dispatchQueue?AutoBkupGameModelPlaceObserver ->
 		notifyObservers1(dispatchQueue, GameModelPlaceObserver)
@@ -131,7 +142,7 @@ active proctype DispatchQueueLoop() {
 	:: dispatchQueue?AutoBkupGameModelResetObserver ->
 		notifyObservers1(dispatchQueue, GameModelResetObserver)
 	
-	:: dispatchQueue?GameModelStateObserver1 ->
+	:: dispatchQueue?GameModelStateObserver ->
 		map_GameModelState_to_AutoBkupGameModelState(gameModelState, autoBkupGameModelState)
 		notifyObservers1(dispatchQueueMain, AutoBkupGameModelStateObserver)
 
@@ -144,11 +155,16 @@ active proctype DispatchQueueLoop() {
 
 active proctype DispatchQueueMainLoop() {
 	mtype:Dest dest
+	int remainedUserInteraction = MAX_USER_INTERACTION
 	
 	end: do
-	// NOTE: Ensure capacity of dispatchQueue to be remained.
-	:: d_step { empty(dispatchQueue) -> notifyObservers1(dispatchQueue, AutoBkupGameModelPlaceObserver) }
-	:: d_step { empty(dispatchQueue) -> notifyObservers1(dispatchQueue, AutoBkupGameModelPassObserver) }
-	:: dispatchQueueMain?dest -> skip
+	:: remainedUserInteraction > 0 ->
+		notifyObservers1(dispatchQueue, AutoBkupGameModelPlaceObserver)
+		remainedUserInteraction--
+	:: remainedUserInteraction > 0 ->
+		notifyObservers1(dispatchQueue, AutoBkupGameModelPassObserver)
+		remainedUserInteraction--
+	:: dispatchQueueMain?dest ->
+		skip
 	od
 }
