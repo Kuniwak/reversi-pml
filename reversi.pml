@@ -14,13 +14,13 @@ mtype:Dest = {
 	GameModelPlaceObserver,
 	GameModelPassObserver,
 	GameModelResetObserver,
-	GameModelStateObserver,
+	GameModelStateObserver1,
+	GameModelStateObserver2,
 	AutoBkupGameModelPlaceObserver,
 	AutoBkupGameModelPassObserver,
 	AutoBkupGameModelResetObserver,
 	AutoBkupGameModelStateObserver,
-	UserDefaultsModelStoreObserver,
-	UserDefaultsModelStateObserver
+	UserDefaultsModelStoreObserver
 }
 mtype:GameModelState = {
 	GameModelMustPass,
@@ -91,18 +91,18 @@ active proctype DispatchQueueLoop() {
 			:: remainedGameLife > 1 ->
 				gameModelState = GameModelMustPass
 				remainedGameLife--
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelMustPlace
 				remainedGameLife--
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelCompleted
 				remainedGameLife--
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: remainedGameLife == 0 ->
 				gameModelState = GameModelCompleted
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: else -> skip
 			fi
 		fi
@@ -115,14 +115,14 @@ active proctype DispatchQueueLoop() {
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelMustPlace
 				remainedGameLife--
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: remainedGameLife > 0 ->
 				gameModelState = GameModelCompleted
 				remainedGameLife--
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: remainedGameLife == 0 ->
 				gameModelState = GameModelCompleted
-				notifyObservers1(dispatchQueue, GameModelStateObserver)
+				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
 			:: else -> skip
 			fi
 		:: gameModelState == GameModelMustPlace -> skip
@@ -131,7 +131,7 @@ active proctype DispatchQueueLoop() {
 	:: dispatchQueue?GameModelResetObserver ->
 		gameModelState = INIT_GameModelState
 		remainedGameLife = INIT_GameLife
-		notifyObservers1(dispatchQueue, GameModelStateObserver)
+		notifyObservers1(dispatchQueue, GameModelStateObserver1)
 
 	:: dispatchQueue?AutoBkupGameModelPlaceObserver ->
 		notifyObservers1(dispatchQueue, GameModelPlaceObserver)
@@ -142,12 +142,16 @@ active proctype DispatchQueueLoop() {
 	:: dispatchQueue?AutoBkupGameModelResetObserver ->
 		notifyObservers1(dispatchQueue, GameModelResetObserver)
 	
-	:: dispatchQueue?GameModelStateObserver ->
+	:: dispatchQueue?GameModelStateObserver1 ->
 		map_GameModelState_to_AutoBkupGameModelState(gameModelState, autoBkupGameModelState)
 		notifyObservers1(dispatchQueueMain, AutoBkupGameModelStateObserver)
 
+	:: dispatchQueue?GameModelStateObserver2 ->
+		notifyObservers1(dispatchQueue, UserDefaultsModelStoreObserver)
+
 	:: dispatchQueue?UserDefaultsModelStoreObserver ->
-		notifyObservers1(dispatchQueue, UserDefaultsModelStateObserver)
+		// NOTE: No one observe the state change of UserDefaultsModel.
+		skip
 	od
 }
 
