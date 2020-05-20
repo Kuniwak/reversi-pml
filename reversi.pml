@@ -11,26 +11,45 @@
 // [^1]: https://pdfs.semanticscholar.org/0c6d/97fbc3c753f59e7fb723725639f1b18706bb.pdf
 
 mtype:Dest = {
-	GameModelPlaceObserver,
-	GameModelPassObserver,
-	GameModelResetObserver,
-	GameModelStateObserver1,
-	GameModelStateObserver2,
-	AutoBkupGameModelPlaceObserver,
-	AutoBkupGameModelPassObserver,
-	AutoBkupGameModelResetObserver,
-	AutoBkupGameModelStateObserver,
-	UserDefaultsModelStoreObserver
+	GameModelPlaceWorkItem,
+	GameModelPassWorkItem,
+	GameModelResetWorkItem,
+	GameModelStateWorkItem1,
+	GameModelStateWorkItem2,
+	AutoBkupGameModelPlaceWorkItem,
+	AutoBkupGameModelPassWorkItem,
+	AutoBkupGameModelResetWorkItem,
+	AutoBkupGameModelStateWorkItem,
+	UserDefaultsModelStoreWorkItem,
+	AnimatedGameModelPlaceWorkItem,
+	AnimatedGameModelPassWorkItem,
+	AnimatedGameModelResetWorkItem,
+	AnimatedGameModeMarkAnimationAsCompleted,
+	AnimatedGameModelStateWorkItem,
+	BoardAnimationStateWorkItem,
 }
 mtype:GameModelState = {
 	GameModelMustPass,
 	GameModelMustPlace,
-	GameModelCompleted
+	GameModelCompleted,
 }
 mtype:AutoBkupGameModelState = {
 	AutoBkupGameModelMustPass,
 	AutoBkupGameModelMustPlace,
-	AutoBkupGameModelCompleted
+	AutoBkupGameModelCompleted,
+}
+mtype:AnimatedGameModelState = {
+	AnimatedGameModelMustPassNotAnimating,
+	AnimatedGameModelMustPlaceNotAnimating,
+	AnimatedGameModelCompletedNotAnimating,
+	AnimatedGameModelMustPassAnimating,
+	AnimatedGameModelMustPlaceAnimating,
+	AnimatedGameModelCompletedAnimating,
+}
+mtype:BoardAnimationState = {
+	BoardAnimationNotAnimating,
+	BoardAnimationPlacing,
+	BoardAnimationFlipping,
 }
 
 // NOTE: It must be larger than the upper bound of the number of work-items will be enqueued.
@@ -41,16 +60,13 @@ chan dispatchQueueMain = [CAP_dispatchQueue] of { mtype:Dest }
 // NOTE: It must be finite.
 #define MAX_USER_INTERACTION 5
 
-#define INIT_GameLife 10
-#define INIT_GameModelState GameModelMustPlace
 
-
-inline notifyObservers1(queue, a) {
+inline enqueueWorkItems1(queue, a) {
 	queue!a
 }
 
 
-inline notifyObservers2(queue, a, b) {
+inline enqueueWorkItems2(queue, a, b) {
 	if
 	:: queue!a
 		queue!b
@@ -73,85 +89,127 @@ inline map_GameModelState_to_AutoBkupGameModelState(gameModelState, autoBkupGame
 }
 
 
-int remainedGameLife = INIT_GameLife
-mtype:GameModelState gameModelState = INIT_GameModelState
+inline animatedGameModelState_from(autoBkupGameModelState, boardAnimationState, animatedGameModelState) {
+	if
+	:: boardAnimationState == BoardAnimationNotAnimating ->
+		if
+		:: autoBkupGameModelState == AutoBkupGameModelMustPass -> animatedGameModelState = AnimatedGameModelMustPassNotAnimating
+		:: autoBkupGameModelState == AutoBkupGameModelMustPlace -> animatedGameModelState = AnimatedGameModelMustPlaceNotAnimating
+		:: autoBkupGameModelState == AutoBkupGameModelCompleted -> animatedGameModelState = AnimatedGameModelCompletedNotAnimating
+		fi
+	:: boardAnimationState == BoardAnimationPlacing || boardAnimationState == BoardAnimationFlipping ->
+		if
+		:: autoBkupGameModelState == AutoBkupGameModelMustPass -> animatedGameModelState = AnimatedGameModelMustPassAnimating
+		:: autoBkupGameModelState == AutoBkupGameModelMustPlace -> animatedGameModelState = AnimatedGameModelMustPlaceAnimating
+		:: autoBkupGameModelState == AutoBkupGameModelCompleted -> animatedGameModelState = AnimatedGameModelCompletedAnimating
+		fi
+	fi
+}
+
+
+mtype:GameModelState gameModelState = GameModelMustPlace
 mtype:AutoBkupGameModelState autoBkupGameModelState
+mtype:BoardAnimationState boardAnimationState = BoardAnimationNotAnimating
+mtype:AnimatedGameModelState animatedGameModelState
 
 
 active proctype DispatchQueueLoop() {
 	map_GameModelState_to_AutoBkupGameModelState(gameModelState, autoBkupGameModelState)
+	animatedGameModelState_from(autoBkupGameModelState, boardAnimationState, animatedGameModelState)
 
 	end: do
-	:: dispatchQueue?GameModelPlaceObserver ->
+	:: dispatchQueue?GameModelPlaceWorkItem ->
 		if
 		:: gameModelState == GameModelCompleted -> skip
 		:: gameModelState == GameModelMustPass -> skip
 		:: gameModelState == GameModelMustPlace ->
 			if
-			:: remainedGameLife > 1 ->
-				gameModelState = GameModelMustPass
-				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
-			:: remainedGameLife > 0 ->
-				gameModelState = GameModelMustPlace
-				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
-			:: remainedGameLife > 0 ->
-				gameModelState = GameModelCompleted
-				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
-			:: remainedGameLife == 0 ->
-				gameModelState = GameModelCompleted
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+			:: gameModelState = GameModelMustPass
+				enqueueWorkItems2(dispatchQueue, GameModelStateWorkItem1, GameModelStateWorkItem2)
+			:: gameModelState = GameModelMustPlace
+				enqueueWorkItems2(dispatchQueue, GameModelStateWorkItem1, GameModelStateWorkItem2)
+			:: gameModelState = GameModelCompleted
+				enqueueWorkItems2(dispatchQueue, GameModelStateWorkItem1, GameModelStateWorkItem2)
 			:: else -> skip
 			fi
 		fi
 
-	:: dispatchQueue?GameModelPassObserver ->
+	:: dispatchQueue?GameModelPassWorkItem ->
 		if
 		:: gameModelState == GameModelCompleted -> skip
 		:: gameModelState == GameModelMustPass ->
 			if
-			:: remainedGameLife > 0 ->
-				gameModelState = GameModelMustPlace
-				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
-			:: remainedGameLife > 0 ->
-				gameModelState = GameModelCompleted
-				remainedGameLife--
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
-			:: remainedGameLife == 0 ->
-				gameModelState = GameModelCompleted
-				notifyObservers2(dispatchQueue, GameModelStateObserver1, GameModelStateObserver2)
+			:: gameModelState = GameModelMustPlace
+				enqueueWorkItems2(dispatchQueue, GameModelStateWorkItem1, GameModelStateWorkItem2)
+			:: gameModelState = GameModelCompleted
+				enqueueWorkItems2(dispatchQueue, GameModelStateWorkItem1, GameModelStateWorkItem2)
+			:: gameModelState = GameModelCompleted
+				enqueueWorkItems2(dispatchQueue, GameModelStateWorkItem1, GameModelStateWorkItem2)
 			:: else -> skip
 			fi
 		:: gameModelState == GameModelMustPlace -> skip
 		fi
 
-	:: dispatchQueue?GameModelResetObserver ->
-		gameModelState = INIT_GameModelState
-		remainedGameLife = INIT_GameLife
-		notifyObservers1(dispatchQueue, GameModelStateObserver1)
+	:: dispatchQueue?GameModelResetWorkItem ->
+		gameModelState = GameModelMustPlace
+		enqueueWorkItems1(dispatchQueue, GameModelStateWorkItem1)
 
-	:: dispatchQueue?AutoBkupGameModelPlaceObserver ->
-		notifyObservers1(dispatchQueue, GameModelPlaceObserver)
+	:: dispatchQueue?AutoBkupGameModelPlaceWorkItem ->
+		enqueueWorkItems1(dispatchQueue, GameModelPlaceWorkItem)
 
-	:: dispatchQueue?AutoBkupGameModelPassObserver ->
-		notifyObservers1(dispatchQueue, GameModelPassObserver)
+	:: dispatchQueue?AutoBkupGameModelPassWorkItem ->
+		enqueueWorkItems1(dispatchQueue, GameModelPassWorkItem)
 
-	:: dispatchQueue?AutoBkupGameModelResetObserver ->
-		notifyObservers1(dispatchQueue, GameModelResetObserver)
+	:: dispatchQueue?AutoBkupGameModelResetWorkItem ->
+		enqueueWorkItems1(dispatchQueue, GameModelResetWorkItem)
 	
-	:: dispatchQueue?GameModelStateObserver1 ->
+	:: dispatchQueue?GameModelStateWorkItem1 ->
 		map_GameModelState_to_AutoBkupGameModelState(gameModelState, autoBkupGameModelState)
-		notifyObservers1(dispatchQueueMain, AutoBkupGameModelStateObserver)
+		enqueueWorkItems1(dispatchQueueMain, AutoBkupGameModelStateWorkItem)
 
-	:: dispatchQueue?GameModelStateObserver2 ->
-		notifyObservers1(dispatchQueue, UserDefaultsModelStoreObserver)
+	:: dispatchQueue?GameModelStateWorkItem2 ->
+		enqueueWorkItems1(dispatchQueue, UserDefaultsModelStoreWorkItem)
 
-	:: dispatchQueue?UserDefaultsModelStoreObserver ->
+	:: dispatchQueue?UserDefaultsModelStoreWorkItem ->
 		// NOTE: No one observe the state change of UserDefaultsModel.
 		skip
+
+	:: dispatchQueue?AutoBkupGameModelStateWorkItem ->
+		if
+		:: boardAnimationState = BoardAnimationPlacing
+			enqueueWorkItems1(dispatchQueue, BoardAnimationStateWorkItem)
+		:: else ->
+			// NOTE: It represents the last accepted game command is pass.
+			skip
+		fi
+
+	:: dispatchQueue?AnimatedGameModelPlaceWorkItem ->
+		enqueueWorkItems1(dispatchQueue, AutoBkupGameModelPlaceWorkItem)
+
+	:: dispatchQueue?AnimatedGameModelPassWorkItem ->
+		enqueueWorkItems1(dispatchQueue, AutoBkupGameModelPassWorkItem)
+
+	:: dispatchQueue?AnimatedGameModelResetWorkItem ->
+		enqueueWorkItems1(dispatchQueue, AutoBkupGameModelResetWorkItem)
+
+	:: dispatchQueue?AnimatedGameModeMarkAnimationAsCompleted ->
+		if
+		:: boardAnimationState == BoardAnimationNotAnimating -> skip
+		:: boardAnimationState == BoardAnimationPlacing ->
+			boardAnimationState = BoardAnimationFlipping
+			enqueueWorkItems1(dispatchQueue, BoardAnimationStateWorkItem)
+		:: boardAnimationState == BoardAnimationFlipping ->
+			if
+			:: boardAnimationState = BoardAnimationFlipping
+				enqueueWorkItems1(dispatchQueue, BoardAnimationStateWorkItem)
+			:: boardAnimationState = BoardAnimationNotAnimating
+				enqueueWorkItems1(dispatchQueue, BoardAnimationStateWorkItem)
+			fi
+		fi
+
+	:: dispatchQueue?BoardAnimationStateWorkItem ->
+		animatedGameModelState_from(autoBkupGameModelState, boardAnimationState, animatedGameModelState)
+		enqueueWorkItems1(dispatchQueue, AnimatedGameModelStateWorkItem)
 	od
 }
 
@@ -161,12 +219,13 @@ active proctype DispatchQueueMainLoop() {
 	mtype:Dest dest
 	int remainedUserInteraction = MAX_USER_INTERACTION
 	
+	// TODO: Add reset
 	end: do
 	:: remainedUserInteraction > 0 ->
-		notifyObservers1(dispatchQueue, AutoBkupGameModelPlaceObserver)
+		enqueueWorkItems1(dispatchQueue, AnimatedGameModelPlaceWorkItem)
 		remainedUserInteraction--
 	:: remainedUserInteraction > 0 ->
-		notifyObservers1(dispatchQueue, AutoBkupGameModelPassObserver)
+		enqueueWorkItems1(dispatchQueue, AnimatedGameModelPassWorkItem)
 		remainedUserInteraction--
 	:: dispatchQueueMain?dest ->
 		skip
