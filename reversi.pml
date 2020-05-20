@@ -219,13 +219,15 @@ active proctype DispatchQueueMainLoop() {
 	mtype:Dest dest
 	int remainedUserInteraction = MAX_USER_INTERACTION
 	
-	// TODO: Add reset
 	end: do
 	:: remainedUserInteraction > 0 ->
 		enqueueWorkItems1(dispatchQueue, AnimatedGameModelPlaceWorkItem)
 		remainedUserInteraction--
 	:: remainedUserInteraction > 0 ->
 		enqueueWorkItems1(dispatchQueue, AnimatedGameModelPassWorkItem)
+		remainedUserInteraction--
+	:: remainedUserInteraction > 0 ->
+		enqueueWorkItems1(dispatchQueue, AnimatedGameModelResetWorkItem)
 		remainedUserInteraction--
 	:: dispatchQueueMain?dest ->
 		skip
